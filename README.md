@@ -24,4 +24,4 @@ $ time ./logo_program > logo.png
 
 Disclamer
 --
-소스 워킹 트리에 포함된 어셈블러는 알파희(https://github.com/aheui/rpaheui) 의 것을 사용하였습니다.
+소스 워킹 트리에 포함된 앟셈블러는 알파희(https://github.com/aheui/rpaheui) 의 것을 사용하였습니다.
