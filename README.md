@@ -13,11 +13,11 @@ Performance
 --
 C로짠 구현체(https://github.com/aheui/caheui.git) 보다 x95배 빠릅니다!
 ```
-$ time ./aheui .snippets/logo/logo.aheui > logo.png 
+$ time ./aheui snippets/logo/logo.aheui > logo.png 
 23.38s user 0.08s system 99% cpu 23.611 total
 ```
 ```
-$ aheuicc|master⚡ ⇒ python ahcc.py -o logo_program snippets/logo/logo.aheui  
+$ python ahcc.py -o logo_program snippets/logo/logo.aheui  
 $ time ./logo_program > logo.png
 0.23s user 0.01s system 94% cpu 0.249 total
 ```
