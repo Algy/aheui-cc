@@ -14,25 +14,51 @@ from genc import CCodeGenerator
 ccompiler = new_compiler()
 
 
+class CmdlineOption(object):
+    pass
+
+
 parser = ArgumentParser()
 parser.add_argument("source_file")
-parser.add_argument("-o", metavar="executable", default="a.out", help="The path to an executable to be generated")
+parser.add_argument("-o", metavar="", help="The path to an executable to be generated")
+parser.add_argument("--type", choices=["ahssembly", "ir", "immediate"], help="Generate an ahssembly, IR, or immediate code instead of an executable")
+
+
 
 
 if __name__ == "__main__":
+    option = CmdlineOption()
     args = parser.parse_args()
-    executable = args.o
 
-    with open(args.source_file, "r") as f:
+    option.source_file = args.source_file
+    option.dest = args.o
+    option.type = args.type
+
+    asm_str = None
+    with open(option.source_file, "r") as f:
         c = Compiler()
         ah_src = f.read()
         c.compile(ah_src)
         c.optimize2()
+        asm_str = c.write_asm()
 
-        with NamedTemporaryFile("w", suffix=".c") as tempf:
-            asm_str = c.write_asm()
-            ir_list = TacGenerator().generate(asm_str)
+    if option.type == "ahssembly":
+        with open(option.dest or "a.out.ahs", "w") as ahs_f:
+            ahs_f.write(asm_str)
+    else: 
+        ir_list = TacGenerator().generate(asm_str)
+        if option.type == "ir":
+            with open(option.dest or "a.out.ir", "w") as ir_f:
+                for ir in ir_list:
+                    ir_f.write(repr(ir))
+                    ir_f.write("\n")
+        else:
             ccode = CCodeGenerator().generate(ir_list)
-            tempf.write(ccode)
-            tempf.flush()
-            ccompiler.link(CCompiler.EXECUTABLE, [tempf.name], executable, extra_postargs=["-O3"])
+            if option.type == "immediate":
+                with open(option.dest or "a.out.c", "w") as imd_f:
+                    imd_f.write(ccode)
+            else:
+                with NamedTemporaryFile("w", suffix=".c") as tempf:
+                    tempf.write(ccode)
+                    tempf.flush()
+                    ccompiler.link(CCompiler.EXECUTABLE, [tempf.name], option.dest or "a.out", extra_postargs=["-O3"])
