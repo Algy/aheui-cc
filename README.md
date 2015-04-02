@@ -11,7 +11,7 @@ python ahcc.py [-o executable] filename
 
 Performance
 --
-C로짠 구현체(https://github.com/aheui/caheui.git) 보다 x95배 빠릅니다!
+C로짠 구현체(https://github.com/aheui/caheui.git) 보다 약 x100배 더 빠릅니다!
 ```
 $ time ./aheui snippets/logo/logo.aheui > logo.png 
 23.38s user 0.08s system 99% cpu 23.611 total
