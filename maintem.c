@@ -27,6 +27,7 @@ static void illegal_utf8() {
     abort();
 }
 
+
 static inline void _printchar (unichar_t num) {
     int size;
     int header_bits;
@@ -132,18 +133,60 @@ cell_t *stack_tops[STACK_CELL_COUNT];
 cell_t** p_cur_stack_top;
 cell_t** p_base_stack_top;
 
+static inline cell_t _stack_no_len(int stackno) {
+    return stack_tops[stackno] - stack_bots[stackno];
+}
+
+static inline cell_t _stack_len() {
+    int stackno = p_cur_stack_top - stack_tops;
+    return _stack_no_len(stackno);
+}
+
+
+static inline cell_t _base_stack_len() {
+    int stackno = p_base_stack_top - stack_tops;
+    return _stack_no_len(stackno);
+
+}
+
+#define STACK_CHECK_STUB(len_invocation, check_overflow)  { \
+    cell_t len = len_invocation; \
+    if (check_overflow) { \
+        if (len >= MAX_STACK_SIZE) { \
+            fprintf(stderr, "Stack Overflow\n"); \
+            abort(); \
+        } \
+    } else { \
+        if (len <= 0) { \
+            fprintf(stderr, "Stack Underflow\n"); \
+            abort(); \
+        } \
+    } \
+}
+
+
+
 static inline void _push_stack(cell_t c) {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_stack_len(), 1);
+#endif
     **p_cur_stack_top = c;
     (*p_cur_stack_top)++;
 }
 
 static inline void _push_stack_no(int stackno, cell_t c) {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_stack_no_len(stackno), 1);
+#endif
     cell_t** t;
     t = &stack_tops[stackno];
     **t = c;
     (*t)++;
 }
 static inline void _push_base_stack(cell_t c) {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_base_stack_len(), 1);
+#endif
     **p_base_stack_top = c;
     (*p_base_stack_top)++;
 }
@@ -157,28 +200,46 @@ static inline void _set_base_stack() {
 }
 
 static inline cell_t _peek_stack() {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_stack_len(), 0);
+#endif
     return *((*p_cur_stack_top) - 1);
 }
 
 static inline cell_t _peek_stack_no(int stackno) {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_stack_no_len(stackno), 0);
+#endif
     return *(stack_tops[stackno] - 1);
 }
 
 static inline cell_t _peek_base_stack() {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_base_stack_len(), 0);
+#endif
     return *((*p_base_stack_top) - 1);
 }
 
 static inline cell_t _pop_stack() {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_stack_len(), 0);
+#endif
     (*p_cur_stack_top)--;
     return **p_cur_stack_top;
 }
 
 static inline cell_t _pop_stack_no(int stackno) {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_stack_no_len(stackno), 0);
+#endif
     stack_tops[stackno]--;
     return *stack_tops[stackno];
 }
 
 static inline cell_t _pop_base_stack() {
+#ifdef CHECK_STACK
+    STACK_CHECK_STUB(_base_stack_len(), 0);
+#endif
     (*p_base_stack_top)--;
     return **p_base_stack_top;
 }
@@ -192,21 +253,6 @@ void setup_stack() {
     p_cur_stack_top = p_base_stack_top = &stack_tops[0];
 }
 
-static inline cell_t _stack_no_len(int stackno) {
-    return (stack_tops[stackno] - stack_bots[stackno]) / sizeof(cell_t);
-}
-
-static inline cell_t _stack_len() {
-    int stackno = (p_cur_stack_top - stack_tops)/sizeof(cell_t*);
-    return _stack_no_len(stackno);
-}
-
-
-static inline cell_t _base_stack_len() {
-    int stackno = (p_base_stack_top - stack_tops)/sizeof(cell_t*);
-    return _stack_no_len(stackno);
-
-}
 
 void main_program() {
 //{_CC_MAIN}
