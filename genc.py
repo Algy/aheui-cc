@@ -53,7 +53,7 @@ class CCodeGenerator(object):
             return "_printchar(%s)"%self._rvalue(tac.src1);
         elif tac.op == TAC_OP.PUSH:
             if tac.stackno is None:
-                return "_push_stack(%s)"%self._rvalue(tac.src1);
+                return "_push(%s)"%self._rvalue(tac.src1);
             elif tac.stackno == BASE_STACK_MAGIC:
                 return "_push_base_stack(%s)"%self._rvalue(tac.src1);
             else:
@@ -65,7 +65,7 @@ class CCodeGenerator(object):
         elif tac.op in [TAC_OP.POP, TAC_OP.PEEK]:
             def inner(sym):
                 if tac.stackno is None:
-                    return "_%s_stack()"%sym
+                    return "_%s()"%sym
                 elif tac.stackno == BASE_STACK_MAGIC:
                     return "_%s_base_stack()"%sym
                 else:
@@ -74,12 +74,34 @@ class CCodeGenerator(object):
             if tac.dest is not None:
                 s = self._lvalue(tac.dest) + s
             return s
+        elif tac.op == TAC_OP.ENQUEUE:
+            return "_enqueue(%s)"%self._rvalue(tac.src1)
+        elif tac.op == TAC_OP.DEQUEUE:
+            return self._lvalue(tac.dest) + "_dequeue()"
+        elif tac.op == TAC_OP.PEEKQUEUE:
+            return self._lvalue(tac.dest) + "_peekqueue()"
+        elif tac.op == TAC_OP.ENTERQUEUEMODE:
+            return "_enterqueuemode()"
+        elif tac.op == TAC_OP.LEAVEQUEUEMODE:
+            return "_leavequeuemode()"
+        elif tac.op == TAC_OP.DUP:
+            return "_dup()"
+        elif tac.op == TAC_OP.DUPQUEUE:
+            return "_dupqueue()"
         elif tac.op == TAC_OP.JMP:
             return "goto %s"%tac.loc.name;
         elif tac.op == TAC_OP.JZ:
             return "if(%s == 0) goto %s"%(tac.src1.name, tac.loc.name)
         elif tac.op == TAC_OP.JSS:
-            return "if(_stack_len() < %d) goto %s"%(tac.imm, tac.loc.name)
+            assert (tac.stackno is not None)
+            if tac.stackno == BASE_STACK_MAGIC:
+                return "if(_base_stack_len() < %d) goto %s"%(tac.imm, tac.loc.name)
+            else:
+                return "if(_stack_no_len(%d) < %d) goto %s"%(tac.stackno, tac.imm, tac.loc.name)
+        elif tac.op == TAC_OP.JQS:
+            return "if(_queue_len() < %d) goto %s"%(tac.imm, tac.loc.name)
+        elif tac.op == TAC_OP.JSTORAGE:
+            return "if(_storage_len() < %d) goto %s"%(tac.imm, tac.loc.name)
         elif tac.op == TAC_OP.HALT:
             return "return"
         else:

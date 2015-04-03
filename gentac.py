@@ -30,8 +30,29 @@ class TAC_OP:
     # print src1
     PRINT_CHAR = "printchar"
 
-    # stack[stackno] += src1
+    # if stackno is None:
+    #   current_storage <-  src1
+    # else:
+    #   stack[stackno] <- src1
     PUSH = "push"
+
+    # enqueue(src1)
+    ENQUEUE = "enqueue"
+    # dest = dequeue()
+    DEQUEUE = "dequeue"
+    # dest = peekqueue()
+    PEEKQUEUE = "peekqueue"
+
+    # dup()
+    DUP = "dup"
+    # dupqueue()
+    DUPQUEUE = "dupqueue"
+
+    # enterqueuemode
+    ENTERQUEUEMODE = "enterqueuemode"
+    # leavequeuemode
+    LEAVEQUEUEMODE = "leavequeuemode"
+
 
     # cur_stackno = stackno
     STACK_SEL = "stacksel"
@@ -39,17 +60,33 @@ class TAC_OP:
     # base_stackno = cur_stackno (no arguments required)
     SET_BASE_STACK = "setbasestack"
 
-    # dest (may be None) = pop element from stack[stackno] 
+    # if stackno is None:
+    #   dest (may be None) = pop from current storage (can be both stack and queue)
+    # else:
+    #   dest (may be None) = pop from stack[stackno]
     POP = "pop"
-    # dest = peek from the top of stack[stackno]
+
+    # if stackno is None:
+    #   dest (may be None) = peek from current storage (can be both stack and queue)
+    # else:
+    #   dest (may be None) = peek from stack[stackno]
     PEEK = "peek"
 
     # jmp loc
     JMP = "jmp"
     # jz src1, loc,
     JZ = "jz"
-    # Jump if stack length is less than imm
-    JSS = "jss" 
+
+
+    # Jump if length of the current stack or queue is less than imm
+    JSTORAGE = "jstorage" 
+
+    # Jump if length of stack[stackno] is less than imm
+    JSS = "jss"
+
+    # Jump if length of the queue is less than imm
+    JQS = "jqs"
+
     # halt 
     HALT = "halt"
 
@@ -100,6 +137,16 @@ def repr_op_stack_push(tac):
     else:
         return "push <- %s"%(tac.src1.name)
 
+def repr_op_enqueue(tac):
+    return "enqueue <- %s"%(tac.src1.name)
+
+def repr_op_dequeue(tac):
+    return "%s = dequeue" % (tac.dest.name)
+
+def repr_op_peekqueue(tac):
+    return "%s = peekqueue" % (tac.dest.name)
+
+
 def repr_op_stack_sel(tac):
     return "sel %s"%(repr(tac.stackno))
 
@@ -128,7 +175,13 @@ def repr_op_jz(tac):
     return "jmp %s, if %s == 0"%(tac.loc.name, tac.src1.name)
 
 def repr_op_jss(tac):
-    return "jmp %s, if ss < %d"%(tac.loc.name, tac.imm)
+    return "jmp %s, if len(stack[%s]) < %d"%(tac.loc.name, repr(tac.stackno), tac.imm)
+
+def repr_op_jqs(tac):
+    return "jmp %s, if len(queue) < %d"%(tac.loc.name, tac.imm)
+
+def repr_op_jstorage(tac):
+    return "jmp %s, if len(cur_storage) < %d"%(tac.loc.name, tac.imm)
 
 def repr_op_halt(tac):
     return "halt"
@@ -148,14 +201,23 @@ REPR_TBL = {
     TAC_OP.PRINT_NUM: repr_op_print_num,
     TAC_OP.PRINT_CHAR: repr_op_print_char,
     TAC_OP.PUSH: repr_op_stack_push,
+    TAC_OP.ENQUEUE: repr_op_enqueue,
+    TAC_OP.DEQUEUE: repr_op_dequeue,
+    TAC_OP.PEEKQUEUE: repr_op_peekqueue,
     TAC_OP.STACK_SEL: repr_op_stack_sel,
     TAC_OP.SET_BASE_STACK: repr_op_set_base_stack, 
+    TAC_OP.ENTERQUEUEMODE: lambda _: "enter queuemode",
+    TAC_OP.LEAVEQUEUEMODE: lambda _: "leave queuemode",
+    TAC_OP.DUP: lambda _: "dup",
+    TAC_OP.DUPQUEUE: lambda _: "dupqueue",
     TAC_OP.POP: repr_op_stack_pop,
     TAC_OP.PEEK: repr_op_stack_peek,
     TAC_OP.JMP: repr_op_jmp,
     TAC_OP.JZ: repr_op_jz,
     TAC_OP.JSS: repr_op_jss,
-    TAC_OP.HALT: repr_op_halt
+    TAC_OP.JQS: repr_op_jqs,
+    TAC_OP.JSTORAGE: repr_op_jstorage,
+    TAC_OP.HALT: repr_op_halt,
 }
 
 
@@ -283,6 +345,7 @@ def make_block_graph(sym_env, asmlist):
         block = CodeBlock(block_id, codes, loc, trailing_jmp, jmp_loc)
         if prev_block is not None:
             prev_block.next_block = block
+            block.incomming_blocks.append(prev_block)
         prev_block = block
         result_blocks.append(block)
         if locname is not None:
@@ -291,13 +354,18 @@ def make_block_graph(sym_env, asmlist):
     for block in result_blocks:
         if block.jmp_loc:
             block.jmp_block = locname_to_block[block.jmp_loc.name];
+            block.jmp_block.incomming_blocks.append(block)
+
         
     if result_blocks:
         start_block = result_blocks[0]
     else:
         start_block = None
-    start_block.stackno = INITIAL_STACKNO
-    return BlockGraph(result_blocks, start_block, block_id_cnt)
+    blockgraph = BlockGraph(result_blocks, start_block, block_id_cnt)
+    blockgraph.infer_final_stackno()
+    blockgraph.infer_possible_initial_stacknos()
+
+    return blockgraph
             
 
 class BlockGraph(object):
@@ -306,10 +374,100 @@ class BlockGraph(object):
         self.start_block = start_block
         self.id_cnt = id_cnt
 
-    def infer_possible_stacknos(self):
-        pass
 
+    def is_start_block(self, block):
+        return self.start_block.block_id == block.block_id
+    
+    def infer_final_stackno(self):
+        '''
+        Fill up each `final_stackno` field of all the blocks
+        '''
+        for block in self.blocks:
+            try:
+                final_stackno = (int(asm.arg) 
+                                 for asm in block.asmlist[::-1] 
+                                 if not asm.is_loc and asm.name == "sel").next()
+            except StopIteration:
+                # If 'block' is the start block
+                if self.is_start_block(block):
+                    final_stackno = INITIAL_STACKNO 
+                else:
+                    final_stackno = HEAD_STACK_MAGIC
+            block.final_stackno = final_stackno
+            # pprint("block %d -> finalstackno "%block.block_id + str(final_stackno))
 
+    def infer_possible_initial_stacknos(self): 
+        # FIXME
+        # requires both block.incomming_blocks and block.final_stackno to be already filled up
+        # provides block.initial_stackno, block.possible_initial_stacknos
+
+        # First, gather constraints
+
+        # blockid |-> stackno set
+        const_constraints = {} 
+        # blockid |-> blockid set
+        constraints = {} 
+
+        for block in self.blocks:
+            const_stacknos = set()
+            dependent_block_ids = set()
+            for incomming in block.get_incomming_blocks():
+                if incomming.final_stackno == HEAD_STACK_MAGIC:
+                    dependent_block_ids.add(incomming.block_id)
+                else:
+                    const_stacknos.add(incomming.final_stackno)
+            if self.is_start_block(block):
+                const_stacknos.add(INITIAL_STACKNO)
+
+            if dependent_block_ids:
+                constraints[block.block_id] = dependent_block_ids
+            const_constraints[block.block_id] = const_stacknos
+
+        # Second, propagate constants
+        store = {} # blockid |-> stackno set
+        for block_id, stacknoset in const_constraints.items():
+            store[block_id] = set(stacknoset)
+
+        # Third, propagate linked constraints repeatedly
+        # until propagation doesn't affect any block's possible stacknos
+        candidates = set(filter(lambda k: k in constraints, constraints.keys()))
+        while candidates:
+            cand_block_id = candidates.pop()
+            assert (cand_block_id in constraints)
+
+            prop_has_effect = False
+            for source_block_id in constraints[cand_block_id]:
+                dest_set = store[cand_block_id]
+                for propagated_stackno in store[source_block_id]:
+                    if propagated_stackno not in dest_set:
+                        prop_has_effect = True
+                        dest_set.add(propagated_stackno)
+            if prop_has_effect:
+                for outgoing in self.blocks[cand_block_id].get_outgoing_blocks():
+                    if outgoing.block_id in constraints:
+                        candidates.add(outgoing.block_id)
+
+        # Check soundness, to say, whether the above is right. If not, There must be a bug!
+        for block_id, sol_set in store.items():
+            test_set = set()
+            for c in constraints.get(block_id, []):
+                test_set.update(store[c])
+            test_set.update(const_constraints[block_id])
+            if sol_set != test_set:
+                raise Exception('Error: %s is not sound solution for Block %d. We get %s'%(repr(sol_set), block_id, repr(test_set)))
+
+        # Finally, Retrieve possible stacknos from `store`, with which each block starts.
+        for block_id, possible_initial_stacknos in store.items():
+            self.blocks[block_id].possible_initial_stacknos = possible_initial_stacknos
+
+        # Plus, if the number of possible stacknos is one, we can set block.initial_stackno to the only element of them
+        for b in self.blocks:
+            assert (len(b.possible_initial_stacknos) > 0)
+            if len(b.possible_initial_stacknos) == 1:
+                b.initial_stackno = iter(b.possible_initial_stacknos).next()
+                if b.final_stackno == HEAD_STACK_MAGIC:
+                    b.final_stacno = b.initial_stackno
+            
 
 
 class CodeBlock(object):
@@ -317,12 +475,44 @@ class CodeBlock(object):
         self.block_id = block_id
         self.asmlist = asmlist
         self.trailing_jmp = trailing_jmp
+        self.loc = loc # IRLoc or None
         self.jmp_loc = jmp_loc 
         self.jmp_block = None
         self.next_block = None
-        self.loc = loc # IRLoc or None
-        self.stackno = HEAD_STACK_MAGIC
+        self.incomming_blocks = []
 
+        self.initial_stackno = HEAD_STACK_MAGIC
+
+        self.final_stackno = None # 
+        self.possible_initial_stacknos = None
+
+    def should_emit_enterqueuemode(self):
+        assert (self.final_stackno is not None)
+        if self.final_stackno == QUEUENO:
+            return any(self.ambiguous_stack_or_queue() 
+                       for self in self.get_outgoing_blocks())
+        return False
+
+    
+    def get_outgoing_blocks(self):
+        return filter(bool, [self.jmp_block, self.next_block]) # filter None
+
+    def get_incomming_blocks(self):
+        return self.incomming_blocks
+
+    def ambiguous_storage(self):
+        if self.possible_initial_stacknos is None:
+            return True
+        return len(self.possible_initial_stacknos) > 1
+
+    def ambiguous_stack_or_queue(self):
+        if self.possible_initial_stacknos is None:
+            return True
+        return (len(self.possible_initial_stacknos) > 1 and
+                QUEUENO in self.possible_initial_stacknos)
+
+    def initial_queue_possible(self):
+        return QUEUENO in self.possible_initial_stacknos
 
     def debug_string(self):
         slist = ["<CodeBlock id=%d, trailing_jmp=%s, loc=%s, jmp_loc=%s>"%(self.block_id, repr(self.trailing_jmp), repr(self.loc), repr(self.jmp_loc))]
@@ -388,8 +578,7 @@ def convert_push(env, instr):
 
 
 def convert_dup(env, instr):
-    temp = env.peek()
-    env.push(temp)
+    env.dup()
 
 def convert_swap(env, instr):
     x = env.pop()
@@ -399,15 +588,11 @@ def convert_swap(env, instr):
 
 def convert_sel(env, instr):
     stackno = int(instr.arg)
-    if stackno == QUEUENO:
-        raise NotImplementedError("Queue \'ㅇ\' is not implemented yet")
     env.select_stack(stackno)
 
 
 def convert_mov(env, instr):
     other_stackno = int(instr.arg)
-    if env.cur_stackno == other_stackno:
-        return None # NOP
     env.move(other_stackno)
 
 def convert_brz(env, instr): 
@@ -417,7 +602,13 @@ def convert_brz(env, instr):
 
 def ctor_convert_brpop(num):
     def convert_brpop(env, instr):
-        return IRTac(TAC_OP.JSS, loc=env.useloc(instr.arg), imm=num)
+        loc = env.useloc(instr.arg)
+        if env.cur_stackno == HEAD_STACK_MAGIC:
+            return IRTac(TAC_OP.JSTORAGE, loc=loc, imm=num)
+        elif env.cur_stackno == QUEUENO:
+            return IRTac(TAC_OP.JQS, loc=loc, imm=num)
+        else:
+            return IRTac(TAC_OP.JSS, loc=loc, stackno=env.cur_stackno, imm=num)
     return convert_brpop
     
 
@@ -555,8 +746,7 @@ class BlockConverter(object):
         self.cur_stackno = None
         self.lazy_tac_list = []
         self.eager_tac_list = []
-        self.stackno_changed = False
-
+        self.block_to_convert = None
 
     def add_lazy_tac(self, tac):
         self.lazy_tac_list.append(tac)
@@ -578,15 +768,21 @@ class BlockConverter(object):
             return self.stack_env_dict[stackno]
         
 
-    def select_stack(self, new_stackno):
+    def _select_stack(self, new_stackno):
         assert (new_stackno is not None)
         if self.cur_stackno == new_stackno:
             return
-
-        self.stackno_changed = True
         self.cur_stackno = new_stackno
         if self.cur_stackno not in self.stack_env_dict:
             self.stack_env_dict[self.cur_stackno] = StackEnv(self.cur_stackno)
+        
+
+    def select_stack(self, new_stackno):
+        assert (new_stackno is not None)
+        if self.cur_stackno == HEAD_STACK_MAGIC:
+            # install a LEAVEQUEUEMODE guard
+            self.add_eager_tac(IRTac(TAC_OP.LEAVEQUEUEMODE)) 
+        self._select_stack(new_stackno)
         
 
     def newtemp(self):
@@ -600,18 +796,30 @@ class BlockConverter(object):
 
 
     def move(self, dest_stackno):
-        if self.cur_stackno == HEAD_STACK_MAGIC:
+        use_runtime_stack = False
+        if self.cur_stackno == QUEUENO:
+            t = self.newtemp()
+            self.add_eager_tac(IRTac(TAC_OP.DEQUEUE, dest=t))
+        elif self.cur_stackno == HEAD_STACK_MAGIC:
             t = self.newtemp()
             self.add_eager_tac(IRTac(TAC_OP.POP, dest=t))
-            self.add_eager_tac(IRTac(TAC_OP.PUSH, t, stackno=dest_stackno))
+            use_runtime_stack = True
         else:
             t = self.pop()
+        # t should exist here in any cases
+
+        if dest_stackno == QUEUENO:
+            self.add_eager_tac(IRTac(TAC_OP.ENQUEUE, t))
+        elif use_runtime_stack:
+            self.add_eager_tac(IRTac(TAC_OP.PUSH, t, stackno=dest_stackno))
+        else:
             self.stackenv(dest_stackno).push(t)
 
     def push(self, elem):
         if self.cur_stackno == HEAD_STACK_MAGIC:
-            # use runtime stack instead of compile-time stack
             self.add_eager_tac(IRTac(TAC_OP.PUSH, elem))
+        elif self.cur_stackno == QUEUENO:
+            self.add_eager_tac(IRTac(TAC_OP.ENQUEUE, elem))
         else:
             self.stackenv().push(elem)
 
@@ -619,6 +827,10 @@ class BlockConverter(object):
         if self.cur_stackno == HEAD_STACK_MAGIC:
             temp = self.newtemp()
             self.add_eager_tac(IRTac(TAC_OP.POP, dest=temp))
+            return temp
+        elif self.cur_stackno == QUEUENO:
+            temp = self.newtemp()
+            self.add_eager_tac(IRTac(TAC_OP.DEQUEUE, dest=temp))
             return temp
         else:
             return self.stackenv().pop(self.gblsym_env)
@@ -628,15 +840,27 @@ class BlockConverter(object):
             temp = self.newtemp()
             self.add_eager_tac(IRTac(TAC_OP.PEEK, dest=temp))
             return temp
+        elif self.cur_stackno == QUEUENO:
+            temp = self.newtemp()
+            self.add_eager_tac(IRTac(TAC_OP.PEEKQUEUE, dest=temp))
+            return temp
         else:
             return self.stackenv().peek(self.gblsym_env)
+
+    def dup(self):
+        if self.cur_stackno == HEAD_STACK_MAGIC:
+            self.add_eager_tac(IRTac(TAC_OP.DUP))
+        elif self.cur_stackno == QUEUENO:
+            self.add_eager_tac(IRTac(TAC_OP.DUPQUEUE))
+        else:
+            temp = self.peek()
+            self.push(temp)
 
     def convert(self, block):
         '''
         self x asmblock -> IR list
         '''
-
-        self.select_stack(block.stackno)
+        self.block_to_convert = block
 
         head_result = []
         result = []
@@ -660,6 +884,19 @@ class BlockConverter(object):
                 assert (isinstance(code, IR))
                 head_result.append(code)
 
+        self._select_stack(block.initial_stackno)
+
+        # First, 
+        # if block.initial_stackno is not HEAD_STACK_MAGIC and
+        # there's at least one block incomming to this block that can end with ENTERQUEUEMODE,
+        # we should add a LEAVEQUEUEMODE instruction to head
+        # (we will call it LEAVEQUEUEMODE guard)
+        if (block.initial_stackno != HEAD_STACK_MAGIC and
+            any(block.should_emit_enterqueuemode() 
+                for block in block.get_incomming_blocks())):
+            add_to_head(IRTac(TAC_OP.LEAVEQUEUEMODE))
+
+        # Then, translate body
         for instr in block.asmlist:
             if instr.is_loc:
                 pass
@@ -697,8 +934,7 @@ class BlockConverter(object):
                 # we can use current stack without specifying stack number
                 pop_stackno = None 
             for idx, argtemp in enumerate(mapping["args"]):
-                args_header.append(IRComment(
-                    "%s: arg#%d"%(repr(stackno), idx)))
+                # args_header.append(IRComment("%s: arg#%d"%(repr(stackno), idx)))
                 args_header.append(IRTac(TAC_OP.POP, 
                                          dest=argtemp,
                                          stackno=pop_stackno))
@@ -712,7 +948,7 @@ class BlockConverter(object):
                         push_stackno = BASE_STACK_MAGIC
                     else:
                         push_stackno = None # we can use current stack
-                args_trailer.append(IRComment("%s: ret #%d"%(repr(stackno), push_len - idx - 1)))
+                # args_trailer.append(IRComment("%s: ret #%d"%(repr(stackno), push_len - idx - 1)))
                 args_trailer.append(IRTac(TAC_OP.PUSH, argtemp, stackno=push_stackno))
 
         # install setbasestack at the header if needed
@@ -723,9 +959,19 @@ class BlockConverter(object):
         result = args_header + result
         result.extend(args_trailer)
 
-        # append stack select if stckno was changed
-        if self.stackno_changed and self.cur_stackno is not None and self.cur_stackno is not HEAD_STACK_MAGIC:
+        # append stack selection 
+        assert (self.cur_stackno is not None)
+        if (  self.cur_stackno is not HEAD_STACK_MAGIC and
+              any(block.ambiguous_storage()
+                  for block in block.get_outgoing_blocks())):
             add(IRTac(TAC_OP.STACK_SEL, stackno=self.cur_stackno))
+
+        # If this block ends with the current storage being the queue 
+        # and any outgoing blocks has an ambigous stack/queue state 
+        # (where we don't determine if they start with which stack or queue),
+        # we should put "enterqueuemode" instruction 
+        if block.should_emit_enterqueuemode():
+            add(IRTac(TAC_OP.ENTERQUEUEMODE))
 
         # append jmp 
         if jmp_codes:
@@ -735,6 +981,7 @@ class BlockConverter(object):
         if block.loc:
             head_result.insert(0, block.loc)
         return head_result + result
+
 
 class TacGenerator(object):
     def generate(self, asm_str):
@@ -746,6 +993,15 @@ class TacGenerator(object):
         for block in make_block_graph(sym_env, 
                                       list(parse_aheui_asm(asm_str))).blocks:
             converter = BlockConverter(sym_env)
-            result.append(IRComment("Block %d"%block.block_id))
+            result.append(IRComment("==Block %d=="%block.block_id))
+            if block.incomming_blocks:
+                cmt = "--Incommings: %s--"%(", ".join([str(b.block_id) for b in block.incomming_blocks]))
+                result.append(IRComment(cmt))
+            '''
+            result.append(IRComment(
+                "--Possible stacknos: %s--"%", ".join([str(x) 
+                                                       for x in block.possible_initial_stacknos])))
+            '''
             result.extend(converter.convert(block))
         return result
+
