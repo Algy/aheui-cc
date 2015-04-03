@@ -85,14 +85,16 @@ static inline void _printnum (cell_t c) {
 
 #define CHECK_EOF(c) { \
     if (c == EOF) { \
-        fprintf(stderr, "met EOF while reading a character\n"); \
+        fprintf(stderr, "met EOF while reading characters\n"); \
         abort(); \
     } \
 }
 
 static inline unichar_t _getchar () {
     int i_c1 = getchar();
-    CHECK_EOF(i_c1);
+    if (i_c1 == -1) {
+        return -1;
+    }
     unsigned char c1 = (unsigned char)i_c1;
     unichar_t result;
     if (c1 >> 7) {
