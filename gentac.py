@@ -74,8 +74,18 @@ class TAC_OP:
 
     # jmp loc
     JMP = "jmp"
-    # jz src1, loc,
-    JZ = "jz"
+
+    # if imm == 0:
+    #   if stackno is not None:
+    #     pop and jmp to loc if stack[stackno] is not empty and its top is 0
+    #     o.w. just pop (if the stack is empty, skip this operation and jmp to loc)
+    #   else:
+    #     pop and jmp if current_storage is not empty and its top is 0
+    #     o.w. just pop (if the storage is empty, skip this operation and jmp to loc)
+    # else:
+    #   pop and jmp if queue is not empty and its front is 0
+    #   o.w. just pop front (if the queue is empty, skip this operation and jmp to loc)
+    POPANDJZ = "popandjz"
 
 
     # Jump if length of the current stack or queue is less than imm
@@ -171,8 +181,13 @@ def repr_op_stack_peek(tac):
 def repr_op_jmp(tac):
     return "jmp %s"%(tac.loc.name)
 
-def repr_op_jz(tac):
-    return "jmp %s, if %s == 0"%(tac.loc.name, tac.src1.name)
+def repr_op_popandjz(tac):
+    if tac.imm != 0:
+        return "popandjmp queue -> %s"%(tac.loc.name)
+    elif tac.stackno is not None:
+        return "popandjmp stack[%s] -> %s"%(repr(tac.stackno), tac.loc.name)
+    else:
+        return "popandjmp cur_storage -> %s"%(tac.loc.name)
 
 def repr_op_jss(tac):
     return "jmp %s, if len(stack[%s]) < %d"%(tac.loc.name, repr(tac.stackno), tac.imm)
@@ -213,7 +228,7 @@ REPR_TBL = {
     TAC_OP.POP: repr_op_stack_pop,
     TAC_OP.PEEK: repr_op_stack_peek,
     TAC_OP.JMP: repr_op_jmp,
-    TAC_OP.JZ: repr_op_jz,
+    TAC_OP.POPANDJZ: repr_op_popandjz,
     TAC_OP.JSS: repr_op_jss,
     TAC_OP.JQS: repr_op_jqs,
     TAC_OP.JSTORAGE: repr_op_jstorage,
@@ -569,9 +584,9 @@ def convert_push(env, instr):
     if instr.name == "push":
         env.add_eager_tac(IRTac(TAC_OP.ASSIGN_VAL, dest=temp, imm=int(instr.arg)))
     elif instr.name == "pushnum":
-        env.add_eager_tac(IRTac(TAC_OP.ASSIGN_CHAR, dest=temp))
-    elif instr.name == "pushchar":
         env.add_eager_tac(IRTac(TAC_OP.ASSIGN_NUM, dest=temp))
+    elif instr.name == "pushchar":
+        env.add_eager_tac(IRTac(TAC_OP.ASSIGN_CHAR, dest=temp))
     else:
         raise Exception("NON REACHABLE")
     env.push(temp)
@@ -596,9 +611,14 @@ def convert_mov(env, instr):
     env.move(other_stackno)
 
 def convert_brz(env, instr): 
-    temp = env.pop()
     loc = env.useloc(instr.arg)
-    return IRTac(TAC_OP.JZ, temp, loc=loc)
+    if env.cur_stackno == HEAD_STACK_MAGIC:
+        return IRTac(TAC_OP.POPANDJZ, loc=loc, imm=0)
+    elif env.cur_stackno == QUEUENO:
+        return IRTac(TAC_OP.POPANDJZ, loc=loc, imm=1)
+    else:
+        return IRTac(TAC_OP.POPANDJZ, loc=loc, stackno=env.cur_stackno, imm=0)
+
 
 def ctor_convert_brpop(num):
     def convert_brpop(env, instr):

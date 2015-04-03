@@ -46,7 +46,7 @@ class CCodeGenerator(object):
         elif tac.op == TAC_OP.ASSIGN_CHAR:
             return self._lvalue(tac.dest) + "_getchar()";
         elif tac.op == TAC_OP.ASSIGN_NUM:
-            return self._lvalue(tac.dest) + "_getchar()";
+            return self._lvalue(tac.dest) + "_getnum()";
         elif tac.op == TAC_OP.PRINT_NUM:
             return "_printnum(%s)"%self._rvalue(tac.src1);
         elif tac.op == TAC_OP.PRINT_CHAR:
@@ -90,8 +90,24 @@ class CCodeGenerator(object):
             return "_dupqueue()"
         elif tac.op == TAC_OP.JMP:
             return "goto %s"%tac.loc.name;
-        elif tac.op == TAC_OP.JZ:
-            return "if(%s == 0) goto %s"%(tac.src1.name, tac.loc.name)
+        elif tac.op == TAC_OP.POPANDJZ:
+            template = "if (!(%s) || ((%s) == 0)) goto %s;"
+            if tac.imm != 0:
+                return template%("_queue_len() > 0", 
+                                 "_dequeue()",
+                                 tac.loc.name)
+            elif tac.stackno is None:
+                return template%("_storage_len() > 0",
+                                 "_pop()",
+                                 tac.loc.name)
+            elif tac.stackno == BASE_STACK_MAGIC:
+                return template%("_base_stack_len() > 0",
+                                 "_pop_base_stack()",
+                                 tac.loc.name)
+            else:
+                return template%("_stack_no_len(%d) > 0"%tac.stackno, 
+                                 "_pop_stack_no(%d)"%tac.stackno,
+                                 tac.loc.name)
         elif tac.op == TAC_OP.JSS:
             assert (tac.stackno is not None)
             if tac.stackno == BASE_STACK_MAGIC:
