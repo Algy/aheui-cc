@@ -22,12 +22,11 @@ parser = ArgumentParser()
 parser.add_argument("source_file")
 parser.add_argument("-o", metavar="", help="The path to an executable to be generated")
 parser.add_argument("--type", choices=["ahssembly", "ir", "immediate"], help="Generate an ahssembly, IR, or immediate code instead of an executable")
-parser.add_argument("--safestack", 
+parser.add_argument("--unsafestack", 
                     action="store_true",  
-                    help="Check the stacks at runtime. "
-                         "It'll be useful for debugging purpose, "
-                         "but it may add a little overhead to stack operations.")
-
+                    help="Force program not to check the stacks and the queue at runtime. "
+                         "It'll get rid of burden for checking overflows or underflows for each push or pop operation,"
+                         " but it may lead unexpected behavior if overflow or underflow take place")
 
 
 if __name__ == "__main__":
@@ -37,7 +36,7 @@ if __name__ == "__main__":
     option.source_file = args.source_file
     option.dest = args.o
     option.type = args.type
-    option.safestack = args.safestack
+    option.unsafestack = args.unsafestack
 
     asm_str = None
     with open(option.source_file, "r") as f:
@@ -69,7 +68,7 @@ if __name__ == "__main__":
 
                     macros = []
                     # safe stack option
-                    if option.safestack:
+                    if not option.unsafestack:
                         macros.append(("CHECK_STACK", None))
                     objpath = ccompiler.compile([tempf.name], macros=macros, extra_postargs=["-O3"])[0]
                     ccompiler.link(CCompiler.EXECUTABLE, [objpath], option.dest or "a.out")
