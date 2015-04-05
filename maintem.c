@@ -10,7 +10,7 @@
 # define MAX_QUEUE_SIZE 14096
 #endif
 typedef long long cell_t; 
-typedef unsigned int unichar_t;
+typedef int unichar_t;
 
 /* Helper macros */
 #define HEX__(n) 0x##n##LU
@@ -92,12 +92,11 @@ static inline void _printnum (cell_t c) {
 
 static inline unichar_t _getchar () {
     int i_c1 = getchar();
-    if (i_c1 == -1) {
-        return -1;
-    }
     unsigned char c1 = (unsigned char)i_c1;
     unichar_t result;
-    if (c1 >> 7) {
+    if (i_c1 == EOF) {
+        result = -1;
+    } else if (c1 >> 7) {
         int size = 0;
         if ((c1 >> 5) == B8(110)) {
             // 110xxxxx
