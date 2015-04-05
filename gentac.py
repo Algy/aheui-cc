@@ -403,11 +403,7 @@ class BlockGraph(object):
                                  for asm in block.asmlist[::-1] 
                                  if not asm.is_loc and asm.name == "sel").next()
             except StopIteration:
-                # If 'block' is the start block
-                if self.is_start_block(block):
-                    final_stackno = INITIAL_STACKNO 
-                else:
-                    final_stackno = HEAD_STACK_MAGIC
+                final_stackno = HEAD_STACK_MAGIC
             block.final_stackno = final_stackno
             # pprint("block %d -> finalstackno "%block.block_id + str(final_stackno))
 
@@ -481,7 +477,7 @@ class BlockGraph(object):
             if len(b.possible_initial_stacknos) == 1:
                 b.initial_stackno = iter(b.possible_initial_stacknos).next()
                 if b.final_stackno == HEAD_STACK_MAGIC:
-                    b.final_stacno = b.initial_stackno
+                    b.final_stackno = b.initial_stackno
             
 
 
@@ -498,7 +494,7 @@ class CodeBlock(object):
 
         self.initial_stackno = HEAD_STACK_MAGIC
 
-        self.final_stackno = None # 
+        self.final_stackno = HEAD_STACK_MAGIC
         self.possible_initial_stacknos = None
 
     def should_emit_enterqueuemode(self):
@@ -1017,11 +1013,10 @@ class TacGenerator(object):
             if block.incomming_blocks:
                 cmt = "--Incommings: %s--"%(", ".join([str(b.block_id) for b in block.incomming_blocks]))
                 result.append(IRComment(cmt))
-            '''
             result.append(IRComment(
                 "--Possible stacknos: %s--"%", ".join([str(x) 
                                                        for x in block.possible_initial_stacknos])))
-            '''
+            result.append(IRComment("--final stackno: %s--"%block.final_stackno))
             result.extend(converter.convert(block))
         return result
 
